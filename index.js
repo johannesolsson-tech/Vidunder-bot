@@ -60,10 +60,11 @@ function buildReport(payload) {
   const now = new Date(payload.generatedAt || Date.now());
   const cutoff = now.getTime() - 24 * 60 * 60 * 1000;
   const mentionMap = payload.mentionMap || {};
-  const behind = Math.min(10, Math.max(5, Number(payload.maxLevelsBehind) || 10));
   const members = (Array.isArray(payload.members) ? payload.members : [])
     .map(member => ({ name: String(member.name || "").slice(0, 80), level: baseLevel(member.level) }))
     .filter(member => member.name && member.level > 0);
+
+  const clanHighestLevel = members.length ? Math.max(...members.map(member => member.level)) : 0;
 
   const lines = ["🐉 **JÄRNPAKTEN – AKTIVA VIDUNDER**", ""];
   const bosses = Array.isArray(payload.bosses) ? payload.bosses : [];
@@ -73,8 +74,12 @@ function buildReport(payload) {
     const name = String(boss.name || "Okänt vidunder").slice(0, 100);
     const min = baseLevel(boss.minLevel);
     const max = baseLevel(boss.maxLevel);
-    const isDragonQueen = normalizeName(name).includes("drakdrottning");
-    const threshold = isDragonQueen ? 40 : Math.max(min, max - behind);
+    // Utgå från klanens högsta grad, men aldrig högre än vidundrets maxgrad.
+    // Därefter räknas fem grader ned, utan att gå under vidundrets mingrad.
+    // Exempel: klanhögsta G42 + Bergatroll 20–40 => aktuellt spann G35–40.
+    // Exempel: klanhögsta G35 + Bergatroll 20–40 => aktuellt spann G30–35.
+    const topLevel = Math.min(clanHighestLevel, max);
+    const bottomLevel = Math.max(min, topLevel - 5);
     const attempts = Array.isArray(boss.attempts) ? boss.attempts : [];
     const recentAttempts = attempts.filter(attempt => {
       const timestamp = new Date(attempt.createdAt).getTime();
@@ -82,13 +87,17 @@ function buildReport(payload) {
     });
     const attackedNames = new Set(recentAttempts.map(attempt => normalizeName(attempt.name)));
     const eligible = members
-      .filter(member => member.level >= threshold && member.level <= max)
+      .filter(member => member.level >= bottomLevel && member.level <= topLevel)
       .sort((a, b) => b.level - a.level || a.name.localeCompare(b.name, "sv"));
     const missing = eligible.filter(member => !attackedNames.has(normalizeName(member.name)));
     const attacked = eligible.filter(member => attackedNames.has(normalizeName(member.name)));
 
     lines.push(`⚔️ **${name}** · grad ${min}–${max} · ${boss.health || "okänd hälsa"}`);
-    lines.push(`_Kontrollerar grad ${threshold}–${max}${isDragonQueen ? " (Drakdrottningen: endast 40+)" : ""}. Retirerar ${stockholmTime(boss.resetsAt)}._`);
+    if (topLevel < min) {
+      lines.push(`_Ingen i klanen når vidundrets mingrad ${min}. Retirerar ${stockholmTime(boss.resetsAt)}._`);
+    } else {
+      lines.push(`_Aktuellt klanspann: grad ${bottomLevel}–${topLevel} (klanens högsta: ${clanHighestLevel}). Retirerar ${stockholmTime(boss.resetsAt)}._`);
+    }
     lines.push(missing.length
       ? `🚨 **Har inte slagit senaste 24 h (${missing.length}):** ${missing.map(member => `${mentionFor(member, mentionMap)} (${member.level})`).join(", ")}`
       : "✅ **Alla behöriga har slagit senaste 24 h.**");
