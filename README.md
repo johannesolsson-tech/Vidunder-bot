@@ -1,42 +1,32 @@
-# Järnpaktens vidunderbot
+# Järnpaktens vidunderbot v2.1
 
 ## Gradlogik
+För alla aktiva vidunder används samma regel:
+- klanens högsta grundgrad hämtas från `current_level`
+- toppgrad = min(klanens högsta grad, vidundrets `clan_boss_max_level`)
+- bottengrad = max(vidundrets `clan_boss_min_level`, toppgrad - 5)
+- bara spelare inom det spannet kontrolleras mot attempts senaste 24 timmarna
 
-Botten använder samma dynamiska regel för alla aktiva vidunder:
+Exempel Bergatroll 20–40:
+- klanhögsta G42 -> G35–40
+- klanhögsta G40 -> G35–40
+- klanhögsta G35 -> G30–35
+- klanhögsta G23 -> G20–23
 
-1. Läs klanens högsta grundgrad (`current_level`/grunddelen av `display_level`).
-2. Läs vidundrets `clan_boss_min_level` och `clan_boss_max_level`.
-3. Aktuell toppgrad = det lägsta av klanens högsta grad och vidundrets maxgrad.
-4. Aktuell bottengrad = toppgraden minus 5, men aldrig lägre än vidundrets mingrad.
-5. Endast spelare inom det aktuella spannet kontrolleras mot attempts de senaste 24 timmarna.
+## v2.1-fix
+- Vidundrets min/max läses från active-data, med fallback mot `/api/clans/bosses/available` via npc_enemy.id.
+- Om en attempts-request misslyckas fortsätter resten av rapporten ändå.
+- Bokmärket läser nu riktigt svar från Railway och visar exakt HTTP/feltext istället för att dölja serverfel med no-cors.
+- Servern har CORS för lanista.se.
+- Discord-postning loggas tydligare i Railway.
 
-Exempel för Bergatroll 20–40:
-- Högsta klangrad G42 -> G35–40 kontrolleras. G42 räknas inte som deltagare.
-- Högsta klangrad G40 -> G35–40 kontrolleras.
-- Högsta klangrad G35 -> G30–35 kontrolleras.
-- Högsta klangrad G23 -> G20–23 kontrolleras.
+## Railway-variabler
+Behåll samma variabler:
+- `DISCORD_TOKEN`
+- `VIDUNDER_CHANNEL_ID`
+- `UPDATE_SECRET`
 
-Bonusgrader som `45+15` räknas som grundgrad 45. Regeln gäller automatiskt för alla aktiva vidunder eftersom min/max hämtas från Lanistas API.
+## Efter GitHub-uppladdning
+Skapa en NY bokmärkeskod från den nya `bookmarklet-generator.html`. Det gamla bokmärket innehåller den gamla JavaScript-koden och uppdateras inte automatiskt.
 
-## Railway
-
-Skapa/uppdatera Railway-servicen och ange variablerna:
-
-- `DISCORD_TOKEN` – bot-token.
-- `VIDUNDER_CHANNEL_ID` – Discord-kanalen där rapporten ska postas.
-- `UPDATE_SECRET` – valfri lång hemlig text.
-
-## Bokmärket
-
-1. Öppna `bookmarklet-generator.html`.
-2. Fyll i Railway-adress och samma `UPDATE_SECRET`.
-3. Lägg till `Gladiatornamn=Discord-ID` för riktiga personpingar.
-4. Klicka **Skapa bokmärkeskod** och kopiera hela koden.
-5. Skapa ett bokmärke i Edge och klistra in koden som bokmärkets URL.
-6. Kör bokmärket medan du är inloggad på `lanista.se`.
-
-Bokmärket hämtar klanmedlemmar, alla aktiva vidunder och attempts för varje aktivt vidunder. Botten kontrollerar attacker under de senaste 24 timmarna. Tidigare rapport från botten raderas och ersätts med en ny rapport.
-
-## Discord-behörigheter
-
-Botten behöver View Channel, Send Messages och Read Message History.
+Discordbotten behöver View Channel, Send Messages och Read Message History.

@@ -15,6 +15,19 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const app = express();
 app.use(express.text({ type: "*/*", limit: "500kb" }));
 
+// Tillåt bokmärket på lanista.se att läsa svaret så fel inte döljs.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin === "https://lanista.se" || origin === "https://www.lanista.se") {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 app.get("/", (req, res) => res.send("Järnpaktens vidunderbot är online."));
 app.get("/health", (req, res) => res.json({ ok: true, discordReady: client.isReady() }));
 
@@ -65,30 +78,40 @@ function buildReport(payload) {
     .filter(member => member.name && member.level > 0);
 
   const clanHighestLevel = members.length ? Math.max(...members.map(member => member.level)) : 0;
-
   const lines = ["🐉 **JÄRNPAKTEN – AKTIVA VIDUNDER**", ""];
   const bosses = Array.isArray(payload.bosses) ? payload.bosses : [];
-  if (!bosses.length) lines.push("_Inga aktiva vidunder just nu._");
+
+  if (!bosses.length) {
+    lines.push("_Inga aktiva vidunder just nu._");
+  }
 
   for (const boss of bosses) {
     const name = String(boss.name || "Okänt vidunder").slice(0, 100);
     const min = baseLevel(boss.minLevel);
     const max = baseLevel(boss.maxLevel);
-    // Utgå från klanens högsta grad, men aldrig högre än vidundrets maxgrad.
-    // Därefter räknas fem grader ned, utan att gå under vidundrets mingrad.
-    // Exempel: klanhögsta G42 + Bergatroll 20–40 => aktuellt spann G35–40.
-    // Exempel: klanhögsta G35 + Bergatroll 20–40 => aktuellt spann G30–35.
+    const attempts = Array.isArray(boss.attempts) ? boss.attempts : [];
+
+    if (!min || !max) {
+      lines.push(`⚠️ **${name}** · kunde inte läsa vidundrets gradintervall.`);
+      lines.push("");
+      continue;
+    }
+
     const topLevel = Math.min(clanHighestLevel, max);
     const bottomLevel = Math.max(min, topLevel - 5);
-    const attempts = Array.isArray(boss.attempts) ? boss.attempts : [];
+
     const recentAttempts = attempts.filter(attempt => {
       const timestamp = new Date(attempt.createdAt).getTime();
       return Number.isFinite(timestamp) && timestamp >= cutoff && timestamp <= now.getTime() + 60000;
     });
     const attackedNames = new Set(recentAttempts.map(attempt => normalizeName(attempt.name)));
-    const eligible = members
-      .filter(member => member.level >= bottomLevel && member.level <= topLevel)
-      .sort((a, b) => b.level - a.level || a.name.localeCompare(b.name, "sv"));
+
+    const eligible = topLevel >= min
+      ? members
+          .filter(member => member.level >= bottomLevel && member.level <= topLevel)
+          .sort((a, b) => b.level - a.level || a.name.localeCompare(b.name, "sv"))
+      : [];
+
     const missing = eligible.filter(member => !attackedNames.has(normalizeName(member.name)));
     const attacked = eligible.filter(member => attackedNames.has(normalizeName(member.name)));
 
@@ -104,8 +127,10 @@ function buildReport(payload) {
     lines.push(attacked.length
       ? `✅ **Har slagit (${attacked.length}):** ${attacked.map(member => `${member.name} (${member.level})`).join(", ")}`
       : "⚪ **Har slagit:** Ingen behörig ännu.");
+    if (boss.attemptError) lines.push(`⚠️ _Attempts kunde inte hämtas: ${boss.attemptError}_`);
     lines.push("");
   }
+
   lines.push(`_Uppdaterad ${stockholmTime(now)} · 24-timmarskontroll_`);
   return splitMessage(lines).map((chunk, index) => index === 0
     ? chunk
@@ -118,9 +143,14 @@ async function replaceReport(channel, chunks) {
     message.author.id === client.user.id &&
     message.content.startsWith("🐉 **JÄRNPAKTEN – AKTIVA VIDUNDER")
   );
-  for (const message of old.values()) await message.delete();
+
+  for (const message of old.values()) {
+    await message.delete().catch(error => console.warn("Kunde inte radera gammal rapport:", error.message));
+  }
+
   for (const content of chunks) {
-    await channel.send({ content, allowedMentions: { parse: [], users: [...content.matchAll(/<@(\d+)>/g)].map(m => m[1]) } });
+    const users = [...new Set([...content.matchAll(/<@(\d+)>/g)].map(m => m[1]))].slice(0, 100);
+    await channel.send({ content, allowedMentions: { parse: [], users } });
   }
 }
 
@@ -129,18 +159,23 @@ app.post("/update", async (req, res) => {
     let payload;
     try { payload = JSON.parse(req.body || "{}"); }
     catch { return res.status(400).send("Ogiltig JSON"); }
-    if (payload.secret !== UPDATE_SECRET) return res.status(403).send("Fel secret");
-    if (!client.isReady()) return res.status(503).send("Discord är inte redo");
+
+    if (payload.secret !== UPDATE_SECRET) return res.status(403).send("Fel UPDATE_SECRET");
+    if (!client.isReady()) return res.status(503).send("Discord är inte redo ännu");
+
     const channel = await client.channels.fetch(VIDUNDER_CHANNEL_ID);
-    if (!channel || !channel.isTextBased()) return res.status(500).send("Fel kanal-ID");
-    await replaceReport(channel, buildReport(payload));
+    if (!channel || !channel.isTextBased()) return res.status(500).send("Fel VIDUNDER_CHANNEL_ID eller kanalen är inte textbaserad");
+
+    const chunks = buildReport(payload);
+    await replaceReport(channel, chunks);
+    console.log(`Rapport postad: ${payload.bosses?.length || 0} vidunder, ${payload.members?.length || 0} medlemmar, ${chunks.length} Discord-meddelande(n).`);
     res.send("OK");
   } catch (error) {
-    console.error(error);
-    res.status(500).send("Internt fel");
+    console.error("UPDATE FEL:", error);
+    res.status(500).send(`Internt fel: ${error.message || error}`);
   }
 });
 
 client.once("ready", () => console.log(`Discord: inloggad som ${client.user.tag}`));
-client.login(DISCORD_TOKEN);
+client.login(DISCORD_TOKEN).catch(error => console.error("Discord login-fel:", error));
 app.listen(PORT, "0.0.0.0", () => console.log(`HTTP-server lyssnar på port ${PORT}`));

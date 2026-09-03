@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Järnpakten – vidunderbokmärke</title>
-<style>body{font:16px system-ui;max-width:850px;margin:35px auto;padding:0 18px;background:#11151a;color:#e7e7e7}label{display:block;margin-top:18px;font-weight:700}input,textarea,select{box-sizing:border-box;width:100%;padding:10px;margin-top:6px;background:#20262d;color:#fff;border:1px solid #46505b;border-radius:6px}textarea{height:170px}button{margin-top:20px;padding:12px 18px;font-weight:700}code{word-break:break-all}.box{margin-top:20px;padding:15px;background:#20262d;border-radius:6px}</style></head>
+<style>body{font:16px system-ui;max-width:850px;margin:35px auto;padding:0 18px;background:#11151a;color:#e7e7e7}label{display:block;margin-top:18px;font-weight:700}input,textarea{box-sizing:border-box;width:100%;padding:10px;margin-top:6px;background:#20262d;color:#fff;border:1px solid #46505b;border-radius:6px}textarea{height:170px}button{margin-top:20px;padding:12px 18px;font-weight:700}code{word-break:break-all}.box{margin-top:20px;padding:15px;background:#20262d;border-radius:6px}</style></head>
 <body><h1>Vidunderbot – bokmärkesgenerator</h1>
 <label>Railway-adress<input id="url" placeholder="https://din-service.up.railway.app"></label>
 <label>UPDATE_SECRET<input id="secret" type="password"></label>
@@ -10,10 +10,65 @@
 <div class="box"><strong>Kod:</strong><br><code id="output">Fyll i uppgifterna och klicka på knappen.</code></div>
 <script>
 document.getElementById("make").onclick=()=>{
-  const cfg={url:document.getElementById("url").value.replace(/\/$/,""),secret:document.getElementById("secret").value,mentions:{}};
+  const cfg={url:document.getElementById("url").value.trim().replace(/\/$/,""),secret:document.getElementById("secret").value,mentions:{}};
   document.getElementById("mentions").value.split(/\r?\n/).forEach(line=>{const i=line.indexOf("=");if(i>0)cfg.mentions[line.slice(0,i).trim()]=line.slice(i+1).trim()});
   if(!cfg.url||!cfg.secret)return alert("Railway-adress och secret måste fyllas i.");
-  const runner=async c=>{try{if(location.hostname!=="lanista.se")return alert("Öppna lanista.se innan du kör bokmärket.");const get=async u=>{const r=await fetch(u,{credentials:"include"});if(!r.ok)throw new Error(`${u}: HTTP ${r.status}`);return r.json()};const unwrap=x=>Array.isArray(x)?x:(x?.data||x?.members||[]);const active=unwrap(await get("/api/clans/5/bosses/active"));const memberRaw=unwrap(await get("/api/clans/5/members?paginate=false"));const members=memberRaw.map(m=>({name:m?.avatar?.name||m?.name,level:m?.avatar?.display_level||m?.avatar?.current_level||m?.display_level||m?.current_level||m?.level})).filter(m=>m.name);const bosses=await Promise.all(active.filter(b=>!b.finished).map(async b=>{const attempts=unwrap(await get(`/api/clans/5/bosses/${b.id}/attempts`));return{name:b?.npc_enemy?.name,minLevel:b?.npc_enemy?.clan_boss_min_level,maxLevel:b?.npc_enemy?.clan_boss_max_level,health:b?.obfuscated_health,resetsAt:b?.resets_at,attempts:attempts.map(a=>({name:a?.avatar?.name,createdAt:a?.created_at,damage:a?.damage_done}))}}));await fetch(c.url+"/update",{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({secret:c.secret,mentionMap:c.mentions,generatedAt:new Date().toISOString(),members,bosses})});alert(`Vidunderrapport skickad. ${bosses.length} aktiva vidunder hittades.`)}catch(e){alert("Fel: "+e.message)}};
+
+  const runner=async c=>{try{
+    if(location.hostname!=="lanista.se"&&location.hostname!=="www.lanista.se")return alert("Öppna lanista.se innan du kör bokmärket.");
+    const get=async u=>{const r=await fetch(u,{credentials:"include"});if(!r.ok)throw new Error(`${u}: HTTP ${r.status}`);return r.json()};
+    const unwrap=x=>Array.isArray(x)?x:(x?.data||x?.members||x?.bosses||[]);
+    const active=unwrap(await get("/api/clans/5/bosses/active"));
+    const available=unwrap(await get("/api/clans/bosses/available"));
+    const memberRaw=unwrap(await get("/api/clans/5/members?paginate=false"));
+
+    const members=memberRaw.map(m=>({
+      name:m?.avatar?.name||m?.name,
+      level:m?.avatar?.current_level??m?.current_level??m?.avatar?.display_level??m?.display_level??m?.level
+    })).filter(m=>m.name);
+
+    const availableById=new Map(available.map(v=>[String(v?.id),v]));
+    const bosses=[];
+
+    for(const b of active.filter(b=>!b.finished)){
+      const enemy=b?.npc_enemy||{};
+      const fallback=availableById.get(String(enemy?.id))||{};
+      let attempts=[];
+      let attemptError="";
+      try{
+        attempts=unwrap(await get(`/api/clans/5/bosses/${b.id}/attempts`));
+      }catch(e){
+        attemptError=e.message;
+      }
+
+      bosses.push({
+        name:enemy?.name||fallback?.name||`Vidunder ${b.id}`,
+        minLevel:enemy?.clan_boss_min_level??fallback?.clan_boss_min_level,
+        maxLevel:enemy?.clan_boss_max_level??fallback?.clan_boss_max_level,
+        health:b?.obfuscated_health||b?.health_display||"okänd hälsa",
+        resetsAt:b?.resets_at,
+        attemptError,
+        attempts:attempts.map(a=>({
+          name:a?.avatar?.name||a?.member?.avatar?.name||a?.name,
+          createdAt:a?.created_at||a?.createdAt,
+          damage:a?.damage_done??a?.damage
+        }))
+      });
+    }
+
+    const response=await fetch(c.url+"/update",{
+      method:"POST",
+      headers:{"Content-Type":"text/plain;charset=UTF-8"},
+      body:JSON.stringify({secret:c.secret,mentionMap:c.mentions,generatedAt:new Date().toISOString(),members,bosses})
+    });
+    const text=await response.text().catch(()=>"");
+    if(!response.ok)throw new Error(`Railway ${response.status}: ${text||"okänt fel"}`);
+    alert(`Vidunderrapport skickad till Discord. ${bosses.length} aktiva vidunder hittades.`);
+  }catch(e){
+    console.error(e);
+    alert("Vidunderbot-fel: "+e.message);
+  }};
+
   document.getElementById("output").textContent="javascript:("+runner.toString()+")("+JSON.stringify(cfg)+")";
 };
 </script></body></html>
