@@ -1,4 +1,4 @@
-# Järnpaktens vidunderbot v2.1
+# Järnpaktens vidunderbot v2.2
 
 ## Gradlogik
 För alla aktiva vidunder används samma regel:
@@ -30,3 +30,11 @@ Behåll samma variabler:
 Skapa en NY bokmärkeskod från den nya `bookmarklet-generator.html`. Det gamla bokmärket innehåller den gamla JavaScript-koden och uppdateras inte automatiskt.
 
 Discordbotten behöver View Channel, Send Messages och Read Message History.
+
+
+## v2.2-fix – Järnsvuren och Discord-taggar
+- Discord-kopplingen försöker först matcha hela gladiatornamnet.
+- Om ingen koppling hittas tas endast suffixet `Järnsvuren` bort från slutet av namnet och botten försöker igen.
+- Exempel: `Jool Järnsvuren` kan använda kopplingen `Jool=DISCORD-ID`.
+- `Jool` utan suffix fungerar precis som tidigare.
+- Andra flerordiga gladiatornamn kapas inte automatiskt.

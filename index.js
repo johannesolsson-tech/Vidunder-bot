@@ -49,8 +49,22 @@ function stockholmTime(value) {
   }).format(date);
 }
 
+function nameWithoutClanSuffix(value) {
+  return String(value || "").replace(/\s+Järnsvuren\s*$/iu, "").trim();
+}
+
 function mentionFor(member, mentionMap) {
-  const id = mentionMap[member.name] || mentionMap[normalizeName(member.name)];
+  const fullName = String(member.name || "").trim();
+  const baseName = nameWithoutClanSuffix(fullName);
+
+  // Föredra exakt namn om det finns, men fall tillbaka till namnet utan
+  // klansuffixet "Järnsvuren". Spelare utan suffix påverkas inte.
+  const id =
+    mentionMap[fullName] ||
+    mentionMap[normalizeName(fullName)] ||
+    mentionMap[baseName] ||
+    mentionMap[normalizeName(baseName)];
+
   return id && /^\d{15,22}$/.test(String(id)) ? `<@${id}>` : `**${member.name}**`;
 }
 
