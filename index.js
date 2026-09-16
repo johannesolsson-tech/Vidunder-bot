@@ -91,7 +91,6 @@ function buildReport(payload) {
     .map(member => ({ name: String(member.name || "").slice(0, 80), level: baseLevel(member.level) }))
     .filter(member => member.name && member.level > 0);
 
-  const clanHighestLevel = members.length ? Math.max(...members.map(member => member.level)) : 0;
   const lines = ["🐉 **JÄRNPAKTEN – AKTIVA VIDUNDER**", ""];
   const bosses = Array.isArray(payload.bosses) ? payload.bosses : [];
 
@@ -111,8 +110,10 @@ function buildReport(payload) {
       continue;
     }
 
-    const topLevel = Math.min(clanHighestLevel, max);
-    const bottomLevel = Math.max(min, topLevel - 5);
+    // Välj de 12 högsta spelarna inom vidundrets riktiga gradintervall.
+    // Drakdrottningen har dessutom specialregeln grad 40+.
+    const isDragonQueen = normalizeName(name).includes("drakdrottning");
+    const effectiveMin = isDragonQueen ? Math.max(min, 40) : min;
 
     const recentAttempts = attempts.filter(attempt => {
       const timestamp = new Date(attempt.createdAt).getTime();
@@ -120,20 +121,19 @@ function buildReport(payload) {
     });
     const attackedNames = new Set(recentAttempts.map(attempt => normalizeName(attempt.name)));
 
-    const eligible = topLevel >= min
-      ? members
-          .filter(member => member.level >= bottomLevel && member.level <= topLevel)
-          .sort((a, b) => b.level - a.level || a.name.localeCompare(b.name, "sv"))
-      : [];
+    const eligible = members
+      .filter(member => member.level >= effectiveMin && member.level <= max)
+      .sort((a, b) => b.level - a.level || a.name.localeCompare(b.name, "sv"))
+      .slice(0, 12);
 
     const missing = eligible.filter(member => !attackedNames.has(normalizeName(member.name)));
     const attacked = eligible.filter(member => attackedNames.has(normalizeName(member.name)));
 
     lines.push(`⚔️ **${name}** · grad ${min}–${max} · ${boss.health || "okänd hälsa"}`);
-    if (topLevel < min) {
-      lines.push(`_Ingen i klanen når vidundrets mingrad ${min}. Retirerar ${stockholmTime(boss.resetsAt)}._`);
+    if (!eligible.length) {
+      lines.push(`_Ingen i klanen är behörig inom grad ${effectiveMin}–${max}. Retirerar ${stockholmTime(boss.resetsAt)}._`);
     } else {
-      lines.push(`_Aktuellt klanspann: grad ${bottomLevel}–${topLevel} (klanens högsta: ${clanHighestLevel}). Retirerar ${stockholmTime(boss.resetsAt)}._`);
+      lines.push(`_Utvalda: klanens ${eligible.length} högsta inom grad ${effectiveMin}–${max}${isDragonQueen ? " (Drakdrottningen: endast G40+)" : ""}. Retirerar ${stockholmTime(boss.resetsAt)}._`);
     }
     lines.push(missing.length
       ? `🚨 **Har inte slagit senaste 24 h (${missing.length}):** ${missing.map(member => `${mentionFor(member, mentionMap)} (${member.level})`).join(", ")}`
