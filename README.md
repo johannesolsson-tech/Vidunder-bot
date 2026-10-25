@@ -1,3 +1,13 @@
+# Vidunderbot – profilkoppling (testversion)
+
+Klan-ID är nu 2. I bokmärkesgeneratorn skriver du **profilnamn=Discord-ID** (exempel: Dueex=123456789012345678). Scriptet hämtar medlemslistan, varje medlems profil via /api/avatars/{id} och stallet via /api/avatars/{id}/stable. Det filtrerar till klan 2 och skickar profilnamn till Railway. Rapporten behåller befintlig gradlogik och 24-timmarskontroll.
+
+**Viktigt:** Denna ändring är inte testad mot live-API:t. Medlemslistans ID-struktur måste verifieras. Om ett API-anrop misslyckas används medlemsuppgifterna som fallback men då saknas profilkopplingen. Kör ett test och kontrollera Discord-taggarna innan merge.
+
+Generera ett **nytt bokmärke** efter uppdatering. Befintliga Railway-miljövariabler ändras inte.
+
+---
+
 # Järnpaktens vidunderbot v2.2
 
 ## Gradlogik
