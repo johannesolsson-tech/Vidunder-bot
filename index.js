@@ -54,6 +54,9 @@ function nameWithoutClanSuffix(value) {
 }
 
 function mentionFor(member, mentionMap) {
+  const profile = normalizeName(member.profileName);
+  const profileId = mentionMap[profile] || Object.entries(mentionMap).find(([key]) => normalizeName(key) === profile)?.[1];
+  if (profileId && /^\d{15,22}$/.test(String(profileId))) return `<@${profileId}>`;
   const fullName = String(member.name || "").trim();
   const baseName = nameWithoutClanSuffix(fullName);
 
@@ -88,7 +91,7 @@ function buildReport(payload) {
   const cutoff = now.getTime() - 24 * 60 * 60 * 1000;
   const mentionMap = payload.mentionMap || {};
   const members = (Array.isArray(payload.members) ? payload.members : [])
-    .map(member => ({ name: String(member.name || "").slice(0, 80), level: baseLevel(member.level) }))
+    .map(member => ({ name: String(member.name || "").slice(0, 80), level: baseLevel(member.level), profileName: String(member.profileName || "").slice(0, 80) }))
     .filter(member => member.name && member.level > 0);
 
   const lines = ["🐉 **JÄRNPAKTEN – AKTIVA VIDUNDER**", ""];
