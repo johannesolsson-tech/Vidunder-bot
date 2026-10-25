@@ -5,7 +5,7 @@
 <body><h1>Vidunderbot – bokmärkesgenerator</h1>
 <label>Railway-adress<input id="url" placeholder="https://din-service.up.railway.app"></label>
 <label>UPDATE_SECRET<input id="secret" type="password"></label>
-<label>Discord-kopplingar – en per rad: Gladiatornamn=Discord-ID<textarea id="mentions" placeholder="Godlin=123456789012345678&#10;Elmer=123456789012345678"></textarea></label>
+<label>Discord-kopplingar – en per rad: Profilnamn=Discord-ID<textarea id="mentions" placeholder="Dueex=123456789012345678&#10;Jool=123456789012345678"></textarea></label>
 <button id="make">Skapa bokmärkeskod</button>
 <div class="box"><strong>Kod:</strong><br><code id="output">Fyll i uppgifterna och klicka på knappen.</code></div>
 <script>
@@ -18,14 +18,38 @@ document.getElementById("make").onclick=()=>{
     if(location.hostname!=="lanista.se"&&location.hostname!=="www.lanista.se")return alert("Öppna lanista.se innan du kör bokmärket.");
     const get=async u=>{const r=await fetch(u,{credentials:"include"});if(!r.ok)throw new Error(`${u}: HTTP ${r.status}`);return r.json()};
     const unwrap=x=>Array.isArray(x)?x:(x?.data||x?.members||x?.bosses||[]);
-    const active=unwrap(await get("/api/clans/5/bosses/active"));
+    const active=unwrap(await get("/api/clans/2/bosses/active"));
     const available=unwrap(await get("/api/clans/bosses/available"));
-    const memberRaw=unwrap(await get("/api/clans/5/members?paginate=false"));
+    const memberRaw=unwrap(await get("/api/clans/2/members?paginate=false"));
 
-    const members=memberRaw.map(m=>({
-      name:m?.avatar?.name||m?.name,
-      level:m?.avatar?.current_level??m?.current_level??m?.avatar?.display_level??m?.display_level??m?.level
-    })).filter(m=>m.name);
+    // Identifiera varje medlem via gladiator-ID, profilnamn och hela stallet.
+    // Anropen sker i inloggad webbläsare, inte på Railway.
+    const members=[];
+    const seen=new Set();
+    const profiles=new Map();
+    for(const m of memberRaw){
+      const avatarId=m?.avatar?.id??m?.avatar_id??m?.id;
+      if(!Number.isSafeInteger(Number(avatarId))||Number(avatarId)<=0)continue;
+      try{
+        const id=Number(avatarId);
+        const detail=await get(`/api/avatars/${id}`);
+        const profileName=String(detail?.user_name||detail?.data?.user_name||"").trim();
+        const stable=unwrap(await get(`/api/avatars/${id}/stable`));
+        for(const g of stable){
+          if(g?.clan?.id!==2||g?.deleted_at||g?.is_bot)continue;
+          if(seen.has(g.id))continue;
+          seen.add(g.id);
+          members.push({name:g.name,level:g.current_level??g.display_level,profileName});
+        }
+      }catch(e){
+        console.warn("Kunde inte hämta profil/stall för gladiator",avatarId,e);
+        const g=m?.avatar||m;
+        if(g?.name&&!seen.has(g.id)){
+          seen.add(g.id);
+          members.push({name:g.name,level:g.current_level??g.display_level??g.level,profileName:""});
+        }
+      }
+    }
 
     const availableById=new Map(available.map(v=>[String(v?.id),v]));
     const bosses=[];
@@ -36,7 +60,7 @@ document.getElementById("make").onclick=()=>{
       let attempts=[];
       let attemptError="";
       try{
-        attempts=unwrap(await get(`/api/clans/5/bosses/${b.id}/attempts`));
+        attempts=unwrap(await get(`/api/clans/2/bosses/${b.id}/attempts`));
       }catch(e){
         attemptError=e.message;
       }
