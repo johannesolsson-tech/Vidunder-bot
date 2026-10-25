@@ -5,7 +5,7 @@
 <body><h1>Vidunderbot – bokmärkesgenerator</h1>
 <label>Railway-adress<input id="url" placeholder="https://din-service.up.railway.app"></label>
 <label>UPDATE_SECRET<input id="secret" type="password"></label>
-<label>Discord-kopplingar – en per rad: Gladiatornamn=Discord-ID<textarea id="mentions" placeholder="Godlin=123456789012345678&#10;Elmer=123456789012345678"></textarea></label>
+<label>Discord-kopplingar – en per rad: Profilnamn=Discord-ID<textarea id="mentions" placeholder="Dueex=123456789012345678&#10;Jool=123456789012345678"></textarea></label>
 <button id="make">Skapa bokmärkeskod</button>
 <div class="box"><strong>Kod:</strong><br><code id="output">Fyll i uppgifterna och klicka på knappen.</code></div>
 <script>
@@ -17,16 +17,33 @@ document.getElementById("make").onclick=()=>{
   const runner=async c=>{try{
     if(location.hostname!=="lanista.se"&&location.hostname!=="www.lanista.se")return alert("Öppna lanista.se innan du kör bokmärket.");
     const get=async u=>{const r=await fetch(u,{credentials:"include"});if(!r.ok)throw new Error(`${u}: HTTP ${r.status}`);return r.json()};
-    const unwrap=x=>Array.isArray(x)?x:(x?.data||x?.members||x?.bosses||[]);
-    const active=unwrap(await get("/api/clans/5/bosses/active"));
+    const unwrap=x=>Array.isArray(x)?x:(Array.isArray(x?.data)?x.data:Array.isArray(x?.members)?x.members:Array.isArray(x?.bosses)?x.bosses:[]);
+    const active=unwrap(await get("/api/clans/2/bosses/active"));
     const available=unwrap(await get("/api/clans/bosses/available"));
-    const memberRaw=unwrap(await get("/api/clans/5/members?paginate=false"));
+    const memberRaw=unwrap(await get("/api/clans/2/members?paginate=false"));
 
-    const members=memberRaw.map(m=>({
-      name:m?.avatar?.name||m?.name,
-      level:m?.avatar?.current_level??m?.current_level??m?.avatar?.display_level??m?.display_level??m?.level
-    })).filter(m=>m.name);
-
+    // Medlemslistan är källan för klanmedlemskap. Stall används inte
+    // för att filtrera bort medlemmar eftersom API-svaret kan variera.
+    const members=[];
+    const seen=new Set();
+    for(const m of memberRaw){
+      const g=m?.avatar||m;
+      const avatarId=g?.id??m?.avatar_id;
+      if(!g?.name)continue;
+      const key=String(avatarId??g.name);
+      if(seen.has(key))continue;
+      seen.add(key);
+      let profileName=String(m?.user_name??g?.user_name??"").trim();
+      if(avatarId!=null){
+        try{
+          const detail=await get(`/api/avatars/${encodeURIComponent(avatarId)}`);
+          profileName=String(detail?.user_name??detail?.data?.user_name??profileName).trim();
+        }catch(e){console.warn("Profilnamn kunde inte hämtas",avatarId,e);}
+      }
+      members.push({name:g.name,level:g.current_level??g.display_level??g.level,profileName});
+    }
+    if(!Array.isArray(memberRaw))throw new Error("Klanens medlemslista har okänt format.");
+    if(!members.length)throw new Error("Hittade inga klanmedlemmar. Rapporten skickas inte.");
     const availableById=new Map(available.map(v=>[String(v?.id),v]));
     const bosses=[];
 
@@ -36,7 +53,7 @@ document.getElementById("make").onclick=()=>{
       let attempts=[];
       let attemptError="";
       try{
-        attempts=unwrap(await get(`/api/clans/5/bosses/${b.id}/attempts`));
+        attempts=unwrap(await get(`/api/clans/2/bosses/${b.id}/attempts`));
       }catch(e){
         attemptError=e.message;
       }
